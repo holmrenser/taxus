@@ -1,6 +1,9 @@
 from gpytorch.likelihoods import _OneDimensionalLikelihood
 from gpytorch.distributions import base_distributions, Distribution
-from gpytorch.constraints import LessThan
+# from gpytorch.constraints import LessThan
+from gpytorch.likelihoods import GaussianLikelihood
+from gpytorch.priors import GammaPrior
+
 from torch.distributions.utils import broadcast_all
 
 import torch
@@ -49,13 +52,15 @@ class NegativeBinomial(Distribution):
 class NegativeBinomialLikelihood(_OneDimensionalLikelihood):
     def __init__(self, alpha=0.01, phi=100.0, invlink=torch.exp):
         super().__init__()
-        self.raw_alpha = torch.nn.Parameter(torch.tensor([alpha]))
-        self.register_constraint('raw_alpha', LessThan(1.0))
+        # self.raw_alpha = torch.nn.Parameter(torch.tensor([alpha]))
+        # self.register_constraint('raw_alpha', LessThan(1.0))
+        self.alpha = torch.nn.Parameter(torch.tensor([alpha]))
+        self.register_prior('alpha_prior', GammaPrior(0.1, 1.0), 'alpha')
         self.invlink = invlink
 
-    @property
-    def alpha(self):
-        return self.raw_alpha_constraint.transform(self.raw_alpha)
+    # @property
+    # def alpha(self):
+    #     return self.raw_alpha_constraint.transform(self.raw_alpha)
 
     def forward(self, function_samples, debug=False):
         if debug:
@@ -73,3 +78,10 @@ class PoissonLikelihood(_OneDimensionalLikelihood):
     def forward(self, function_samples):
         rate = self.invlink(function_samples) + 1e-9
         return base_distributions.Poisson(rate=rate, validate_args=False)
+
+
+LIKELIHOODS = dict(
+    poisson=PoissonLikelihood,
+    nb=NegativeBinomialLikelihood,
+    gaussian=GaussianLikelihood
+)

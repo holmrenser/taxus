@@ -6,39 +6,69 @@ from gpytorch.variational import (
     IndependentMultitaskVariationalStrategy,
 )
 from gpytorch.priors import NormalPrior
-from gpytorch.kernels import ScaleKernel, RBFKernel
+from gpytorch.kernels import ScaleKernel, RBFKernel, Kernel, LinearKernel
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO
 from gpytorch.distributions import MultivariateNormal
-from patsy import dmatrices, dmatrix
+from patsy import dmatrix
 import torch
 from torch.optim import Adam
-import tqdm
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
+from typing import List
+
+from .likelihoods import LIKELIHOODS
 
 
 class GP(ApproximateGP):
-    def __init__(self, formula, train_df, likelihood):
-        train_y_df, train_x_df = dmatrices(formula, train_df,
-                                           return_type='dataframe')
-        train_x_df = train_x_df.drop('Intercept', axis=1, errors='ignore')
+    def __init__(
+        self,
+        formula: str,
+        train_x_df: pd.DataFrame,
+        train_y_df: pd.DataFrame,
+        likelihood: str = 'nb',
+        likelihood_kwargs: dict = dict(),
+        kernel: str = 'rbf'
+    ):
+        train_x_df = dmatrix(f'{formula} -1', train_x_df,
+                             return_type='dataframe')
         variational_strategy = self._get_variational_strategy(train_x_df)
         super(GP, self).__init__(variational_strategy)
         self.formula = formula
         self.train_y_df = train_y_df
         self.train_x_df = train_x_df
-        self.likelihood = likelihood
-        self.mean_module = ConstantMean()
-        self.covar_module = ScaleKernel(
-            base_kernel=RBFKernel(
-                ard_num_dims=self.train_x.size(1),
-                lengthscale_prior=NormalPrior(loc=0, scale=1)
-            )
-        )
 
-    def _get_variational_strategy(self, train_x_df):
-        inducing_points = torch.tensor(train_x_df.values, dtype=torch.float32)
+        _likelihood = LIKELIHOODS.get(likelihood)
+        if not _likelihood:
+            raise NameError(f'{likelihood} is not a valid likelihood name')
+        self.likelihood = _likelihood(**likelihood_kwargs)
+        self.mean_module = ConstantMean()
+        self.covar_module = self._get_kernel_function(
+            kernel, train_x_df.shape[1])
+        self._kernel_name = kernel
+
+    def _get_kernel_function(self, kernel_name: str, num_dims: int) -> Kernel:
+        if kernel_name == 'rbf':
+            return ScaleKernel(
+                base_kernel=RBFKernel(
+                    ard_num_dims=num_dims,
+                    lengthscale_prior=NormalPrior(loc=0, scale=1)
+                ),
+                ard_num_dims=num_dims
+            )
+        elif kernel_name == 'linear':
+            return ScaleKernel(
+                base_kernel=LinearKernel(),
+                ard_num_dims=num_dims
+            )
+        raise NameError(f'{kernel_name} is not a valid kernel name')
+
+    def _get_variational_strategy(
+        self, train_x_df: pd.DataFrame
+    ) -> UnwhitenedVariationalStrategy:
+        _inducing_points = torch.tensor(train_x_df.values, dtype=torch.float32)
+        inducing_points = torch.unique(_inducing_points, dim=1)
         variational_distribution = CholeskyVariationalDistribution(
             num_inducing_points=inducing_points.size(0)
         )
@@ -49,7 +79,7 @@ class GP(ApproximateGP):
         return variational_strategy
 
     @property
-    def covariates(self):
+    def variable_names(self) -> List[str]:
         return list(self.train_x_df.columns)
 
     @property
@@ -60,16 +90,23 @@ class GP(ApproximateGP):
     def train_x(self):
         return torch.tensor(self.train_x_df.values, dtype=torch.float32)
 
-    def forward(self, x):
+    def forward(self, x: torch.tensor) -> MultivariateNormal:
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
         latent_pred = MultivariateNormal(mean_x, covar_x)
         return latent_pred
 
-    def fit(self, n_steps=600, lr=0.1, tol=1e-4, n_retries=2,
-            show_progress_bar=True):
+    def fit(
+        self,
+        n_steps=600,
+        lr=0.1,
+        tol=1e-4,
+        n_retries=2,
+        show_progress_bar=True,
+        debug=False
+    ) -> float:
         """
-        ELBO approximates (usually intractable) log marginal likelihood, 
+        ELBO approximates (usually intractable) log marginal likelihood, \
         so can be used for likelihood ratio tests
         """
         self.losses_ = []
@@ -80,17 +117,42 @@ class GP(ApproximateGP):
         ], lr=lr)
 
         self.train()
-        self.initialize(**{
-            'covar_module.base_kernel.lengthscale': torch.tensor(
-                [2.]*self.train_x.shape[1]),
+        self.likelihood.train()
+
+        """
+        if self._kernel_name == 'rbf':
+            self.initialize(**{
+                'covar_module.base_kernel.lengthscale': torch.tensor(
+                    [2.]*self.train_x.shape[1]),
+                'covar_module.outputscale': torch.log(self.train_y.mean()),
+                'mean_module.constant': torch.log(self.train_y.mean())
+            })
+        else:
+            self.initialize(**{
+                'covar_module.outputscale': torch.log(self.train_y.mean()),
+                'mean_module.constant': torch.log(self.train_y.mean())
+            })
+        """
+
+        param_init = {
             'covar_module.outputscale': torch.log(self.train_y.mean()),
             'mean_module.constant': torch.log(self.train_y.mean())
-        })
+        }
+
+        if self._kernel_name == 'rbf':
+            param_init['covar_module.base_kernel.lengthscale'] = torch.tensor(
+                torch.max(torch.diff(self.train_x, axis=0), axis=0).values)
+
+        self.initialize(**param_init)
 
         try:
-            with tqdm(total=n_steps, desc='Fitting GP', leave=False,
-                      disable=not show_progress_bar) as progress_bar:
-                for i in range(n_steps):       
+            with tqdm(
+                total=n_steps,
+                desc='Fitting GP',
+                leave=True,
+                disable=not show_progress_bar,
+            ) as progress_bar:
+                for i in range(n_steps):
                     optimizer.zero_grad()
                     # Get predictive output
                     output = self(self.train_x)
@@ -107,26 +169,38 @@ class GP(ApproximateGP):
                     loss.backward()
                     optimizer.step()
             return loss_item
-        except Exception:
+        except Exception as e:
+            if debug:
+                print(e)
             if not n_retries:
                 return np.nan
             self.fit(n_steps=n_steps, lr=lr, tol=tol, n_retries=n_retries-1,
                      show_progress_bar=show_progress_bar)
 
-    def predict(self, test_x_df, n_likelihood_samples=100,
-                n_latent_samples=100,
-                percentiles=[0.5, 2.5, 5, 50, 95, 97.5, 99.5]):
-
-        formula_rhs = self.formula.split('~')[1]
-        _test_x_df = (
-            dmatrix(formula_rhs, test_x_df, return_type='dataframe')
-            .drop('Intercept', axis=1, errors='ignore')
+    def predict(
+        self,
+        test_x_df: pd.DataFrame,
+        n_likelihood_samples=100,
+        n_latent_samples=100,
+        percentiles=[0.5, 2.5, 5, 50, 95, 97.5, 99.5]
+    ) -> pd.DataFrame:
+        test_x_df = (
+            dmatrix(f'{self.formula} - 1', test_x_df, return_type='dataframe')
+            # .drop('Intercept', axis=1, errors='ignore')
         )
         assert not (
-            self.train_x_df.columns.difference(_test_x_df.columns).values.size)
-        self.eval()
+            self.train_x_df.columns.difference(test_x_df.columns).values.size
+        )
+        test_x = torch.tensor(test_x_df.values, dtype=torch.float32)
 
-        test_x = torch.tensor(_test_x_df.values, dtype=torch.float32)
+        if (isinstance(self.likelihood, LIKELIHOODS['gaussian'])):
+            # Gaussian likelihood has an exact implementation for marginal
+            # probability so we don't have to sample, additionally setting this
+            # higher than 1 results in incorrect number of total samples
+            n_likelihood_samples = 1
+
+        self.eval()
+        self.likelihood.eval()
 
         f_pred = self(test_x)
         y_pred = self.likelihood(
@@ -134,7 +208,7 @@ class GP(ApproximateGP):
         )
 
         model_samples = (
-            y_pred.sample([n_latent_samples])
+            y_pred.sample(torch.Size([n_latent_samples]))
             .reshape(n_latent_samples * n_likelihood_samples,
                      f_pred.mean.size(0))
             .numpy()
@@ -147,10 +221,10 @@ class GP(ApproximateGP):
                 percentiles_pred.T,
                 model_samples.mean(axis=0).reshape(-1, 1),
             ], axis=1),
-            columns=[*[f'p{p}' for p in percentiles],'mean']
+            columns=[*[f'p{p}' for p in percentiles], 'mean']
         )
 
-    def fit_predict(self, test_x_df):
+    def fit_predict(self, test_x_df: pd.DataFrame) -> pd.DataFrame:
         self.fit()
         return self.predict(test_x_df)
 
