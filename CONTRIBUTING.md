@@ -13,6 +13,6 @@ poetry run coverage report
 # build
 poetry build
 
-# deploy
-poetry deploy
+# publish
+poetry publish
 ```
