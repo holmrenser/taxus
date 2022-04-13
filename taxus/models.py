@@ -1,8 +1,9 @@
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import (
+    MeanFieldVariationalDistribution,
     CholeskyVariationalDistribution,
     VariationalStrategy,
-    UnwhitenedVariationalStrategy,
+    # UnwhitenedVariationalStrategy,
     IndependentMultitaskVariationalStrategy,
 )
 from gpytorch.priors import NormalPrior
@@ -66,15 +67,15 @@ class GP(ApproximateGP):
 
     def _get_variational_strategy(
         self, train_x_df: pd.DataFrame
-    ) -> UnwhitenedVariationalStrategy:
+    ) -> VariationalStrategy:
         _inducing_points = torch.tensor(train_x_df.values, dtype=torch.float32)
         inducing_points = torch.unique(_inducing_points, dim=1)
-        variational_distribution = CholeskyVariationalDistribution(
+        variational_distribution = MeanFieldVariationalDistribution(
             num_inducing_points=inducing_points.size(0)
         )
-        variational_strategy = UnwhitenedVariationalStrategy(
+        variational_strategy = VariationalStrategy(
             self, inducing_points, variational_distribution,
-            learn_inducing_locations=False
+            learn_inducing_locations=True
         )
         return variational_strategy
 
@@ -119,29 +120,14 @@ class GP(ApproximateGP):
         self.train()
         self.likelihood.train()
 
-        """
-        if self._kernel_name == 'rbf':
-            self.initialize(**{
-                'covar_module.base_kernel.lengthscale': torch.tensor(
-                    [2.]*self.train_x.shape[1]),
-                'covar_module.outputscale': torch.log(self.train_y.mean()),
-                'mean_module.constant': torch.log(self.train_y.mean())
-            })
-        else:
-            self.initialize(**{
-                'covar_module.outputscale': torch.log(self.train_y.mean()),
-                'mean_module.constant': torch.log(self.train_y.mean())
-            })
-        """
-
         param_init = {
             'covar_module.outputscale': torch.log(self.train_y.mean()),
             'mean_module.constant': torch.log(self.train_y.mean())
         }
 
         if self._kernel_name == 'rbf':
-            param_init['covar_module.base_kernel.lengthscale'] = torch.tensor(
-                torch.max(torch.diff(self.train_x, axis=0), axis=0).values)
+            param_init['covar_module.base_kernel.lengthscale'] = torch.max(
+                torch.diff(self.train_x, axis=0), axis=0).values
 
         self.initialize(**param_init)
 
@@ -175,7 +161,7 @@ class GP(ApproximateGP):
             if not n_retries:
                 return np.nan
             self.fit(n_steps=n_steps, lr=lr, tol=tol, n_retries=n_retries-1,
-                     show_progress_bar=show_progress_bar)
+                     show_progress_bar=show_progress_bar, debug=debug)
 
     def predict(
         self,

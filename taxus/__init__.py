@@ -1,5 +1,5 @@
 __author__ = "Rens Holmer"
-__version__ = "0.0.2"
+__version__ = "0.0.3alpha"
 
 from .models import GP # noqa
 from .likelihoods import ( # noqa
