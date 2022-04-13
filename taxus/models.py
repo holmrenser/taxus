@@ -68,14 +68,17 @@ class GP(ApproximateGP):
     def _get_variational_strategy(
         self, train_x_df: pd.DataFrame
     ) -> VariationalStrategy:
-        _inducing_points = torch.tensor(train_x_df.values, dtype=torch.float32)
-        inducing_points = torch.unique(_inducing_points, dim=1)
+        inducing_points = torch.unique(
+            torch.tensor(train_x_df.values, dtype=torch.float32),
+            dim=0
+        )
+        # inducing_points = torch.unique(_inducing_points, dim=1)
         variational_distribution = MeanFieldVariationalDistribution(
             num_inducing_points=inducing_points.size(0)
         )
         variational_strategy = VariationalStrategy(
             self, inducing_points, variational_distribution,
-            learn_inducing_locations=True
+            learn_inducing_locations=False
         )
         return variational_strategy
 
@@ -101,8 +104,8 @@ class GP(ApproximateGP):
         self,
         n_steps=600,
         lr=0.1,
-        tol=1e-4,
-        n_retries=2,
+        tol=1e-5,
+        n_retries=4,
         show_progress_bar=True,
         debug=False
     ) -> float:
@@ -160,7 +163,7 @@ class GP(ApproximateGP):
                 print(e)
             if not n_retries:
                 return np.nan
-            self.fit(n_steps=n_steps, lr=lr, tol=tol, n_retries=n_retries-1,
+            self.fit(n_steps=n_steps + 200, lr=lr / 2, tol=tol, n_retries=n_retries - 1,
                      show_progress_bar=show_progress_bar, debug=debug)
 
     def predict(

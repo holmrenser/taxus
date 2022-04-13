@@ -29,12 +29,9 @@ patsy = "^0.5.2"
 tqdm = "^4.63.1"
 
 [tool.poetry.group.dev.dependencies]
-patchworklib = "^0.4.0"
-
-[tool.poetry.dev-dependencies]
+flake8 = "^4.0.1"
 pytest = "^7.0"
 black = "^22.1.0"
-flake8 = "^4.0.1"
 coverage = {extras = ["toml"], version = "^6.3.1"}
 coveralls = "^3.3.1"
 mkdocs = "^1.2.3"
@@ -44,6 +41,7 @@ mkdocs-jupyter = "^0.20.0"
 mkdocstrings = "^0.18.0"
 jupyter = "^1.0.0"
 ipykernel = "^6.9.1"
+patchworklib = "^0.4.0"
 
 [tool.poetry-version-plugin]
 source = "init"
