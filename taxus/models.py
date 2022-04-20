@@ -72,8 +72,7 @@ class GP(ApproximateGP):
             torch.tensor(train_x_df.values, dtype=torch.float32),
             dim=0
         )
-        # inducing_points = torch.unique(_inducing_points, dim=1)
-        variational_distribution = MeanFieldVariationalDistribution(
+        variational_distribution = CholeskyVariationalDistribution(
             num_inducing_points=inducing_points.size(0)
         )
         variational_strategy = VariationalStrategy(
@@ -123,9 +122,12 @@ class GP(ApproximateGP):
         self.train()
         self.likelihood.train()
 
+        log_mean_train_y = torch.log(self.train_y.mean())
+        mean_scale = torch.max(torch.tensor([0.]), log_mean_train_y)
+
         param_init = {
-            'covar_module.outputscale': torch.log(self.train_y.mean()),
-            'mean_module.constant': torch.log(self.train_y.mean())
+            'covar_module.outputscale': mean_scale,
+            'mean_module.constant': mean_scale
         }
 
         if self._kernel_name == 'rbf':

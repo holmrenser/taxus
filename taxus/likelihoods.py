@@ -4,10 +4,14 @@ from gpytorch.distributions import base_distributions, Distribution
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.priors import GammaPrior
 
+# from torch.distributions import Poisson
 from torch.distributions.utils import broadcast_all
 
 import torch
 from torch import lgamma, log
+
+
+Poisson = base_distributions.Poisson
 
 
 class NegativeBinomial(Distribution):
@@ -19,7 +23,7 @@ class NegativeBinomial(Distribution):
         self.mu, self.phi = broadcast_all(mu, phi)
         super(NegativeBinomial, self).__init__(validate_args=validate_args)
 
-    def log_prob(self, value):
+    def log_prob(self, value: torch.tensor) -> torch.tensor:
         return (
             lgamma(value + self.phi) - lgamma(value + 1) - lgamma(self.phi)
             + (self.phi * log(self.phi / (self.phi + self.mu)))
@@ -50,15 +54,13 @@ class NegativeBinomial(Distribution):
 
 
 class NegativeBinomialLikelihood(_OneDimensionalLikelihood):
-    def __init__(self, alpha=0.01, phi=100.0, invlink=torch.exp):
+    def __init__(self, alpha=1.0, invlink=torch.exp):
         super().__init__()
         self.alpha = torch.nn.Parameter(torch.tensor([alpha]))
         self.register_prior('alpha_prior', GammaPrior(0.1, 1.0), 'alpha')
         self.invlink = invlink
 
-    def forward(self, function_samples, debug=False):
-        if debug:
-            print(function_samples.shape)
+    def forward(self, function_samples: torch.tensor) -> NegativeBinomial:
         phi = 1 / self.alpha
         mu = self.invlink(function_samples)
         return NegativeBinomial(mu, phi)
@@ -69,9 +71,9 @@ class PoissonLikelihood(_OneDimensionalLikelihood):
         super().__init__()
         self.invlink = invlink
 
-    def forward(self, function_samples):
+    def forward(self, function_samples: torch.tensor) -> Poisson:
         rate = self.invlink(function_samples) + 1e-9
-        return base_distributions.Poisson(rate=rate, validate_args=False)
+        return Poisson(rate=rate, validate_args=False)
 
 
 LIKELIHOODS = dict(

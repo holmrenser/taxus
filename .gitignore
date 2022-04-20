@@ -3,6 +3,6 @@
 .ipynb_checkpoints
 dist
 
-.docs/examples/*tsv
+docs/examples/*tsv
 
 .coverage
