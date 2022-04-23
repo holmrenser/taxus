@@ -56,7 +56,7 @@ python_files = "*tests.py"
 
 [tool.coverage.run]
 branch = true
-command_line = "-m pytest"
+command_line = "-m"
 
 [tool.coverage.report]
 omit = ["tests/*", "*__init__.py"]
