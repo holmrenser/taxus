@@ -5,7 +5,25 @@ on:
     branch: [master, dev]
 
 jobs:
+  lint:
+    strategy:
+      fail-fast: true
+    runs-on: ubuntu-lastest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.10"
+      - name: Set up poetry
+        uses: abatilo/actions-poetry@v2.0.0
+        with:
+          poetry-version: "1.2.0a2"
+      - name: Poetry install
+        run: poetry install
+      - name: Lint with flake8
+        run: poetry run flake8
   ci:
+    needs: lint
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -35,7 +53,7 @@ jobs:
           poetry run coverage report
       #          poetry run coveralls
       - name: Coveralls GitHub Action
-        uses: coverallsapp/github-action@v1.1.3
+        uses: coverallsapp/github-action@1.1.3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           flag-name: run-${{ matrix.test_number }}
