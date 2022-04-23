@@ -2,7 +2,10 @@ import numpy as np
 import pandas as pd
 
 
-def deseq_normalization(df: pd.DataFrame) -> pd.DataFrame:
+def deseq_normalization(
+    df: pd.DataFrame,
+    return_size_factors: bool = False
+) -> pd.DataFrame:
     # Vanilla deseq2 size factors
     pseudo_reference = np.expm1(np.log1p(df).mean(axis=1))
     pseudo_ref_diff = df.div(pseudo_reference, axis=0).fillna(0)
@@ -12,4 +15,7 @@ def deseq_normalization(df: pd.DataFrame) -> pd.DataFrame:
     # size_factors = dev_est_df.sum(axis=0) / dev_est_df.sum(axis=0).median()
 
     norm_df = df.div(size_factors, axis=1)
-    return norm_df
+    if return_size_factors:
+        return norm_df, size_factors
+    else:
+        return norm_df

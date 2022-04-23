@@ -1,6 +1,6 @@
 from gpytorch.models import ApproximateGP
 from gpytorch.variational import (
-    MeanFieldVariationalDistribution,
+    # MeanFieldVariationalDistribution,
     CholeskyVariationalDistribution,
     VariationalStrategy,
     # UnwhitenedVariationalStrategy,
@@ -54,7 +54,7 @@ class GP(ApproximateGP):
             return ScaleKernel(
                 base_kernel=RBFKernel(
                     ard_num_dims=num_dims,
-                    lengthscale_prior=NormalPrior(loc=0, scale=1)
+                    # lengthscale_prior=NormalPrior(loc=0, scale=1)
                 ),
                 ard_num_dims=num_dims
             )
@@ -92,6 +92,16 @@ class GP(ApproximateGP):
     @property
     def train_x(self):
         return torch.tensor(self.train_x_df.values, dtype=torch.float32)
+
+    @property
+    def score(self):
+        return (
+            self.likelihood(self(self.train_x))
+                .log_prob(self.train_y)
+                .mean(dim=0)
+                .sum()
+                .item()
+        )
 
     def forward(self, x: torch.tensor) -> MultivariateNormal:
         mean_x = self.mean_module(x)
