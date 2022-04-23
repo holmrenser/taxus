@@ -50,7 +50,7 @@ jobs:
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
         run: |
           poetry run coverage run
-          poetry run coverage report
+          poetry run coverage lcov
       #          poetry run coveralls
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@1.1.3
