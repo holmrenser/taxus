@@ -8,7 +8,7 @@ jobs:
   lint:
     strategy:
       fail-fast: true
-    runs-on: ubuntu-lastest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
@@ -22,7 +22,7 @@ jobs:
         run: poetry install
       - name: Lint with flake8
         run: poetry run flake8
-  ci:
+  unit-test:
     needs: lint
     strategy:
       fail-fast: false
