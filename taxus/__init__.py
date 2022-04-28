@@ -6,4 +6,5 @@ from .likelihoods import ( # noqa
     PoissonLikelihood,
     NegativeBinomialLikelihood
 )
+from .tests import LRT # noqa
 from .util import deseq_normalization # noqa

@@ -2,6 +2,7 @@ from gpytorch.models import ApproximateGP
 from gpytorch.variational import (
     # MeanFieldVariationalDistribution,
     CholeskyVariationalDistribution,
+    TrilNaturalVariationalDistribution,
     VariationalStrategy,
     # UnwhitenedVariationalStrategy,
     IndependentMultitaskVariationalStrategy,
@@ -11,6 +12,7 @@ from gpytorch.kernels import ScaleKernel, RBFKernel, Kernel, LinearKernel
 from gpytorch.means import ConstantMean
 from gpytorch.mlls import VariationalELBO
 from gpytorch.distributions import MultivariateNormal
+from gpytorch.optim import NGD
 from patsy import dmatrix
 import torch
 from torch.optim import Adam
@@ -72,7 +74,8 @@ class GP(ApproximateGP):
             torch.tensor(train_x_df.values, dtype=torch.float32),
             dim=0
         )
-        variational_distribution = CholeskyVariationalDistribution(
+        # inducing_points = torch.tensor(train_x_df.values, dtype=torch.float32)
+        variational_distribution = TrilNaturalVariationalDistribution(
             num_inducing_points=inducing_points.size(0)
         )
         variational_strategy = VariationalStrategy(
@@ -103,6 +106,12 @@ class GP(ApproximateGP):
                 .item()
         )
 
+    @property
+    def elbo(self):
+        log_elbo = VariationalELBO(self.likelihood, self, self.train_y.size(1))
+        latent_f = self(self.train_x)
+        return log_elbo(latent_f, self.train_y)
+
     def forward(self, x: torch.tensor) -> MultivariateNormal:
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
@@ -111,8 +120,9 @@ class GP(ApproximateGP):
 
     def fit(
         self,
-        n_steps=600,
-        lr=0.1,
+        n_steps=1000,
+        hyper_lr=0.1,
+        variational_lr=0.1,
         tol=1e-5,
         n_retries=4,
         show_progress_bar=True,
@@ -125,9 +135,13 @@ class GP(ApproximateGP):
         self.losses_ = []
         mll = VariationalELBO(self.likelihood, self, self.train_y.size(1))
 
-        optimizer = Adam([
-            {'params': self.parameters()},
-        ], lr=lr)
+        hyper_optimizer = Adam(self.hyperparameters(), lr=hyper_lr)
+
+        variational_optimizer = NGD(
+            self.variational_parameters(),
+            num_data=self.train_y.size(0),
+            lr=variational_lr
+        )
 
         self.train()
         self.likelihood.train()
@@ -154,7 +168,8 @@ class GP(ApproximateGP):
                 disable=not show_progress_bar,
             ) as progress_bar:
                 for i in range(n_steps):
-                    optimizer.zero_grad()
+                    hyper_optimizer.zero_grad()
+                    variational_optimizer.zero_grad()
                     # Get predictive output
                     output = self(self.train_x)
                     # Calc loss and backprop gradients
@@ -168,14 +183,16 @@ class GP(ApproximateGP):
                     )
                     progress_bar.update()
                     loss.backward()
-                    optimizer.step()
+                    hyper_optimizer.step()
+                    variational_optimizer.step()
             return loss_item
         except Exception as e:
             if debug:
                 print(e)
             if not n_retries:
                 return np.nan
-            self.fit(n_steps=n_steps + 200, lr=lr / 2, tol=tol, n_retries=n_retries - 1,
+            self.fit(n_steps=n_steps + 200, hyper_lr=hyper_lr / 2,
+                     variational_lr=variational_lr, tol=tol, n_retries=n_retries - 1,
                      show_progress_bar=show_progress_bar, debug=debug)
 
     def predict(
