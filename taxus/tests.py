@@ -4,7 +4,7 @@ from .models import GP
 
 
 class LRT:
-    def __init__(self, full_formula, reduced_formula, covariates, expression,
+    def __init__(self, *, full_formula, reduced_formula, covariates, expression,
                  kernel, likelihood):
         self.full_model = GP(full_formula, covariates, expression,
                              kernel=kernel, likelihood=likelihood)
